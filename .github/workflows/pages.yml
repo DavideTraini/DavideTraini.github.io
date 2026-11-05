@@ -1,0 +1,52 @@
+name: Deploy site to GitHub Pages
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  guard:
+    name: Privacy guard
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Refuse private-looking files
+        run: |
+          set -eu
+          bad=$(git ls-files | grep -Ei '(firma|autocert|titoli|\.tex$|\.bib$|\.aux$|\.log$|\.pdf$|archive.*\.json$|snapshot|backup)' || true)
+          if [ -n "$bad" ]; then echo "Forbidden files:"; echo "$bad"; exit 1; fi
+      - name: Refuse tax codes, local paths and tokens
+        run: |
+          set -u
+          if git grep -nEI '\b[A-Za-z]{6}[0-9]{2}[A-Za-z][0-9]{2}[A-Za-z][0-9]{3}[A-Za-z]\b|[A-Za-z]:[\\/]+Users[\\/]|Sito-curricul[u]m|gh[pousr]_[A-Za-z0-9]{20,}' -- . ':!.github'; then
+            echo "Sensitive pattern found"; exit 1
+          fi
+
+  deploy:
+    needs: guard
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Assemble site
+        run: |
+          mkdir _site
+          cp -r index.html en 404.html assets robots.txt sitemap.xml .nojekyll _site/
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
+      - id: deployment
+        uses: actions/deploy-pages@v4
